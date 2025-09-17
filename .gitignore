@@ -2,3 +2,5 @@
 *.env
 **/*.yaml
 **/*.json
+
+# echo + GORM(DB), concurrency, advanced, system, expert

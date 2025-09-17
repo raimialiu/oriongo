@@ -1,6 +1,7 @@
 package main
 
 import (
+	"oriongo/internal/infrastructure"
 	"oriongo/internal/origongo"
 )
 
@@ -22,7 +23,15 @@ func (p *Program) StartApp() *Program {
 }
 
 func createDefaultApp() *origongo.OrionGo {
-	app := origongo.CreateDefaultApp()
+	app := origongo.CreateDefaultApp().AddControllers().AddDbContext(infrastructure.ConnectionConfig{
+		AutoConnect: true,
+		Host:        "127.0.0.1",
+		Port:        "3306",
+		Database:    "DDumper",
+		Username:    "root",
+		Password:    "DVorak@23000",
+	},
+	)
 
 	return app
 }
