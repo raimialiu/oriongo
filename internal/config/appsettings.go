@@ -4,7 +4,15 @@ type (
 	AppSettings struct {
 		PORT int
 	}
-	DbSettings    struct{}
+	DbSettings struct {
+		AutoConnect bool
+		Host        string
+		Port        string
+		Database    string
+		Username    string
+		Password    string
+		Dialect     string
+	}
 	RedisSettings struct{}
 	OrionConfig   struct {
 		App   AppSettings

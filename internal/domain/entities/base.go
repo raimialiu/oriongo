@@ -6,10 +6,10 @@ import (
 )
 
 type BaseModel struct {
-	EncodedKey     string                 `gorm:"primary_key;default:uuid_generate_v4()"`
+	EncodedKey     string                 `gorm:"primaryKey;default:(UUID())"`
 	CreationDate   time.Time              `gorm:"autoCreateTime"`
 	CreatedBy      string                 `gorm:"index"`
-	LastModified   *time.Time             `gorm:"autoUpdateTime"`
+	LastModified   *time.Time             `gorm:"column:last_modified;autoUpdateTime"`
 	LastModifiedBy string                 `gorm:"index"`
 	Status         constants.EntityStatus `gorm:"index"`
 }

@@ -4,13 +4,17 @@ import "database/sql"
 
 type Workspace struct {
 	BaseModel
-	Name        string
-	Description sql.NullString `gorm:"type:text"`
+	Name            string `gorm:"uniqueIndex"`
+	Description     string
+	UserKey         string            `gorm:"index"`
+	Settings        WorkspaceSettings `gorm:"foreignKey:WorkspaceEncodedKey;references:EncodedKey;constraint:OnDelete:CASCADE"`
+	OrganizationKey string            `gorm:"index"`
+	Organization    Organization      `gorm:"foreignKey:OrganizationKey;references:EncodedKey;constraint:OnDelete:CASCADE"`
 }
 
 type WorkspaceSettings struct {
-	SupportVersioning bool
-	EnableVersioning  bool
-	EnablePrefix      bool
-	PrefixName        sql.NullString `gorm:"type:varchar(10)"`
+	EnableVersioning    bool
+	EnablePrefix        bool
+	PrefixName          sql.NullString `gorm:"type:varchar(10)"`
+	WorkspaceEncodedKey string
 }

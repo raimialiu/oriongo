@@ -5,12 +5,17 @@ import (
 	"net/http"
 	"oriongo/internal/common/constants"
 	"oriongo/internal/config"
+	"oriongo/internal/domain/entities"
 	"oriongo/internal/infrastructure"
+	"oriongo/presentation/routes"
+	"oriongo/presentation/routes/accounts"
+	"oriongo/presentation/routes/workspace"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/spf13/viper"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -21,8 +26,9 @@ type (
 		_host         *echo.Echo
 		Configuration config.OrionConfig
 		_viper        *viper.Viper
+		route         routes.OrionRoute
 		_logger       echo.Logger
-		_dbContext    *gorm.DB
+		_dbContext    *infrastructure.DbContext
 	}
 
 	Configuration struct{}
@@ -31,15 +37,13 @@ type (
 func Instance() *OrionGo {
 	e := echo.New()
 	app := &OrionGo{
+		route: routes.OrionRoute{
+			Routes: make([]routes.RoutePath, 0),
+		},
 		_host: e,
 	}
 
 	app.AddConfiguration()
-	return app
-}
-
-func (app *OrionGo) Info(message string) *OrionGo {
-	app._host.Logger.Info(message)
 	return app
 }
 
@@ -53,9 +57,13 @@ func (o *OrionGo) Use(handler func(next echo.HandlerFunc) echo.HandlerFunc) *Ori
 }
 
 func (o *OrionGo) AddPingRoute() {
-	o._host.GET("/ping", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, "pong")
-	})
+	o.IncludeRoute(*routes.NewBaseRouter("", routes.RoutePath{
+		Path: "ping",
+		Handler: func(context echo.Context) error {
+			return context.JSON(http.StatusOK, "pong")
+		},
+		Method: http.MethodGet,
+	}))
 }
 
 func (o *OrionGo) MapPost(path string, handler func(echo.Context) error) *OrionGo {
@@ -63,13 +71,35 @@ func (o *OrionGo) MapPost(path string, handler func(echo.Context) error) *OrionG
 	return o
 }
 
+func (o *OrionGo) UseRouting() {
+	if len(o.route.Routes) == 0 {
+		o._logger.Debug("OrionGo routes is empty")
+	}
+
+	for _, route := range o.route.Routes {
+		switch route.Method {
+		case http.MethodGet:
+			o._host.GET(route.Path, route.Handler)
+			break
+		case http.MethodPost:
+			o._host.POST(route.Path, route.Handler)
+			break
+		case http.MethodPut:
+			o._host.PUT(route.Path, route.Handler)
+			break
+		case http.MethodDelete:
+			o._host.DELETE(route.Path, route.Handler)
+			break
+		}
+	}
+}
+
 func (o *OrionGo) AddLogging() *OrionGo {
 	o._logger = o._host.Logger
-
 	return o
 }
 
-func (o *OrionGo) AddControllers() *OrionGo {
+func (o *OrionGo) AddRequestHandlers() *OrionGo {
 
 	return o
 }
@@ -80,6 +110,8 @@ func (o *OrionGo) Set(key string, value interface{}) *OrionGo {
 }
 
 func (o *OrionGo) Run() {
+	o.Use(middleware.CORS())
+	o.UseRouting()
 	port := strings.Join([]string{":", strconv.Itoa(o.Configuration.App.PORT)}, "")
 	o._host.Logger.Info(fmt.Sprintf("Starting server on port %s", port))
 	o._host.Logger.Fatal(o._host.Start(port))
@@ -87,15 +119,58 @@ func (o *OrionGo) Run() {
 
 func CreateDefaultApp() *OrionGo {
 	app := Instance()
-	app.AddPingRoute()
 
-	print(strings.Join([]string{"Welcome to ", constants.APPLICATION_NAME}, ""))
+	app._logger.Info(strings.Join([]string{"Welcome to ", constants.APPLICATION_NAME}, ""))
 
 	return app
 }
 
-func (app *OrionGo) AddDbContext(config infrastructure.ConnectionConfig) *OrionGo {
-	dsn := fmt.Sprintf("%s:%p@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+func (o *OrionGo) AddRoutes() *OrionGo {
+	o.AddPingRoute()
+	o.AddWorkspaceRoutes("workspaces")
+	o.AddAccountRoutes("accounts")
+
+	return o
+}
+
+func (o *OrionGo) IncludeRoute(route routes.BaseRouter) *OrionGo {
+	path := strings.Join([]string{fmt.Sprintf("/%s%s", route.BasePath, route.Path.Path)}, "")
+	o.route.Routes = append(o.route.Routes, routes.RoutePath{
+		Handler: route.Path.Handler,
+		Path:    path,
+		Method:  route.Path.Method,
+	})
+
+	return o
+}
+
+func (o *OrionGo) AddAccountRoutes(prefix string) *OrionGo {
+	accountRoutes := accounts.AccountRoutes("accounts")
+	for _, accountRoute := range accountRoutes {
+		o.IncludeRoute(accountRoute)
+	}
+
+	return o
+}
+
+func (o *OrionGo) AddWorkspaceRoutes(prefix string) {
+	workspaceRoutes := workspace.WorkspaceRoutes(prefix, *o._dbContext)
+	for _, route := range workspaceRoutes {
+		o.IncludeRoute(route)
+	}
+}
+
+func (app *OrionGo) AddDbContext() *OrionGo {
+	var config = infrastructure.ConnectionConfig{
+		Host:        os.Getenv("DB_HOST"),
+		Port:        os.Getenv("DB_PORT"),
+		Username:    os.Getenv("DB_USER"),
+		Password:    os.Getenv("DB_PASS"),
+		Database:    os.Getenv("DB_NAME"),
+		AutoMigrate: os.Getenv("DB_AUTO_MIGRATE") == "1",
+	}
+
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		config.Username, config.Password, config.Host, config.Port, config.Database)
 	db, err := gorm.Open(
 		mysql.New(mysql.Config{
@@ -105,16 +180,42 @@ func (app *OrionGo) AddDbContext(config infrastructure.ConnectionConfig) *OrionG
 	)
 
 	if err != nil {
-		fmt.Errorf("Failed to connect to database: %v", err)
+		fmt.Printf(`failed to connect to database: %s`, err.Error())
+		return app
 	}
 
 	fmt.Println("Successfully connected to database")
-	app._dbContext = db
+	app._dbContext = infrastructure.NewDbContext(config, db)
+	app._dbContext.Migrate()
+
+	//migrationSteps := app.setupMigrationSteps()
+	//app._dbContext.Migrator.AddSteps(migrationSteps...)
+	//app._dbContext.Migrate()
 	return app
 }
 
-func (o *OrionGo) DB() *gorm.DB {
+func (o *OrionGo) DB() *infrastructure.DbContext {
 	return o._dbContext
+}
+
+func (o *OrionGo) setupMigrationSteps() []infrastructure.MigrationStep {
+	var workspace = entities.Workspace{}
+	return []infrastructure.MigrationStep{
+		{
+			Name: "Workspaces",
+			Up: func(db *gorm.DB) error {
+				return db.AutoMigrate(&workspace)
+			},
+		},
+
+		{
+			Name: "WorkspaceSettings",
+			Up: func(db *gorm.DB) error {
+				return db.AutoMigrate(&entities.WorkspaceSettings{})
+			},
+		},
+	}
+
 }
 
 func (o *OrionGo) Host() *echo.Echo {
@@ -124,7 +225,7 @@ func (o *OrionGo) Host() *echo.Echo {
 func (o *OrionGo) AddConfiguration() {
 	v := viper.New()
 
-	env := os.Getenv(constants.GetEnvName(constants.ORION_ENVIRONMENT))
+	env := os.Getenv(constants.ORION_ENVIRONMENT)
 	if env == "" {
 		env = constants.Development.String()
 	}
